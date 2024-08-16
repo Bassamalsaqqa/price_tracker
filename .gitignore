@@ -1,0 +1,8 @@
+# Ignore environment configuration files
+Docker_bot_details.env
+
+# Ignore logs
+*.log
+
+# Ignore OS-specific files
+.DS_Store

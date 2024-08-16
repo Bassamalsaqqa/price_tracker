@@ -1,0 +1,51 @@
+version: '3.8'
+
+services:
+  price_tracker:
+    image: bassamalsaqqa/price_tracker:v1.0
+    restart: "no"
+    secrets:
+      - telegram_bot_token
+      - telegram_chat_id
+    networks:
+      - price_tracker_network
+    deploy:
+      replicas: 1
+      update_config:
+        parallelism: 1
+        delay: 10s
+      rollback_config:
+        parallelism: 1
+        delay: 10s
+    environment:
+      - PRODUCT_URL=${PRODUCT_URL}
+      - USER_AGENT=${USER_AGENT}
+      - ACCEPT_LANGUAGE=${ACCEPT_LANGUAGE}
+      - PRICE_FILE=/usr/src/app/price_log.csv
+      - CHECK_INTERVAL=${CHECK_INTERVAL}
+    volumes:
+      - data:/usr/src/app  # Mount the volume to the container
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /usr/src/app/price_log.csv || exit 1"]
+      interval: 30s
+      retries: 3
+      start_period: 10s
+      timeout: 10s
+
+secrets:
+  telegram_bot_token:
+    external: true
+  telegram_chat_id:
+    external: true
+
+networks:
+  price_tracker_network:
+    driver: overlay
+
+volumes:
+  data:
+    driver: local
+    driver_opts:
+      o: bind
+      device: /volume1/docker/price_check/data
+      type: none
