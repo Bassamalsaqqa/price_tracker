@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   price_tracker:
-    image: bassamalsaqqa/price_tracker:v1.0
+    image: bassamalsaqqa/price_tracker:v1.1
     restart: "no"
     secrets:
       - telegram_bot_token
@@ -21,12 +21,12 @@ services:
       - PRODUCT_URL=${PRODUCT_URL}
       - USER_AGENT=${USER_AGENT}
       - ACCEPT_LANGUAGE=${ACCEPT_LANGUAGE}
-      - PRICE_FILE=/usr/src/app/price_log.csv
+      - PRICE_FILE=/usr/src/app/logs/price_log.csv  # Updated path to match new log file location
       - CHECK_INTERVAL=${CHECK_INTERVAL}
     volumes:
       - data:/usr/src/app  # Mount the volume to the container
     healthcheck:
-      test: ["CMD-SHELL", "test -f /usr/src/app/price_log.csv || exit 1"]
+      test: ["CMD-SHELL", "test -f /usr/src/app/logs/price_log.csv || exit 1"]  # Updated path to match new log file location
       interval: 30s
       retries: 3
       start_period: 10s
