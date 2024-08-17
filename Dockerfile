@@ -3,12 +3,15 @@ FROM python:3.9-slim
 
 WORKDIR /usr/src/app
 
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
 COPY check_price.py .
 COPY Docker_bot_details.env .
 
-RUN pip install --no-cache-dir requests beautifulsoup4
+# Create logs directory
+RUN mkdir -p /usr/src/app/logs
 
-# Use a volume to map the current directory for debugging
-VOLUME ["/usr/src/app"]
+VOLUME ["/usr/src/app/logs"]
 
 CMD ["python", "./check_price.py"]

@@ -6,12 +6,11 @@ from datetime import datetime
 import time
 import logging
 
-# Determine the log directory and file
+# Set up logging
 log_dir = './logs'
-os.makedirs(log_dir, exist_ok=True)  # Create the directory if it doesn't exist
+os.makedirs(log_dir, exist_ok=True)
 log_file_path = os.path.join(log_dir, 'app.log')
 
-# Set up logging
 logging.basicConfig(filename=log_file_path, level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Configuration from environment variables
@@ -22,7 +21,7 @@ HEADERS = {
                                           'Chrome/44.0.2403.157 Safari/537.36'),
     'Accept-Language': os.getenv('ACCEPT_LANGUAGE', 'en-US, en;q=0.5')
 }
-PRICE_FILE = os.getenv('PRICE_FILE', './logs/price_log.csv')
+PRICE_FILE = os.getenv('PRICE_FILE', 'logs/price_log.csv')
 CHECK_INTERVAL = int(os.getenv('CHECK_INTERVAL', 86400))  # Default 24 hours in seconds
 
 # Telegram configuration
@@ -44,7 +43,6 @@ def send_telegram_notification(title, body):
         logging.info('Notification sent to Telegram successfully.')
     except requests.RequestException as e:
         logging.error(f'Failed to send notification to Telegram: {e}')
-        send_error_notification(f'Failed to send notification to Telegram: {e}')
 
 
 def get_current_price():
@@ -58,7 +56,6 @@ def get_current_price():
 
         if not title_element or not price_element:
             logging.error('Failed to find product title or price element.')
-            send_error_notification('Failed to find product title or price element.')
             return None, None
 
         product_title = title_element.text.strip()
@@ -66,7 +63,6 @@ def get_current_price():
         return product_title, price
     except requests.RequestException as e:
         logging.error(f'Error fetching the product page: {e}')
-        send_error_notification(f'Error fetching the product page: {e}')
         return None, None
 
 
@@ -83,7 +79,6 @@ def write_price_to_csv(date, csv_time, product_title, price):
             writer.writerow([date, csv_time, product_title, price])
     except IOError as e:
         logging.error(f'Error writing to the CSV file: {e}')
-        send_error_notification(f'Error writing to the CSV file: {e}')
 
 
 def check_price_drop():
@@ -104,7 +99,6 @@ def check_price_drop():
             previous_price = last_row[3] if len(last_row) > 3 else None
     except Exception as e:
         logging.error(f"Error reading the CSV file: {e}")
-        send_error_notification(f"Error reading the CSV file: {e}")
         previous_price = None
 
     if previous_price is None:
@@ -121,12 +115,6 @@ def notify_start():
     title = 'Script Started'
     body = 'The price tracking script has started successfully.'
     send_telegram_notification(title, body)
-
-
-def send_error_notification(error_message):
-    """Send a detailed error notification."""
-    title = 'Error Occurred'
-    send_telegram_notification(title, error_message)
 
 
 def main():
