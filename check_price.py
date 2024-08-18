@@ -5,6 +5,9 @@ import os
 from datetime import datetime
 import time
 import logging
+import docker
+from telegram import Update, Bot, ParseMode
+from telegram.ext import Updater, CommandHandler, CallbackContext
 
 # Set up logging
 log_dir = './logs'
@@ -14,11 +17,9 @@ log_file_path = os.path.join(log_dir, 'app.log')
 logging.basicConfig(filename=log_file_path, level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Configuration from environment variables
-URL = os.getenv('PRODUCT_URL', 'https://www.amazon.com/gp/product/B0D5B7GFLB/ref=ox_sc_act_title_1?smid'
-                               '=A1NNDL37T76WIA&psc=1')
+URL = os.getenv('PRODUCT_URL', 'https://www.amazon.com/gp/product/B0D5B7GFLB/ref=ox_sc_act_title_1?smid=A1NNDL37T76WIA&psc=1')
 HEADERS = {
-    'User-Agent': os.getenv('USER_AGENT', 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) '
-                                          'Chrome/44.0.2403.157 Safari/537.36'),
+    'User-Agent': os.getenv('USER_AGENT', 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/44.0.2403.157 Safari/537.36'),
     'Accept-Language': os.getenv('ACCEPT_LANGUAGE', 'en-US, en;q=0.5')
 }
 PRICE_FILE = os.getenv('PRICE_FILE', 'logs/price_log.csv')
@@ -28,102 +29,61 @@ CHECK_INTERVAL = int(os.getenv('CHECK_INTERVAL', 86400))  # Default 24 hours in 
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
 
+bot = Bot(token=TELEGRAM_BOT_TOKEN)
+client = docker.from_env()
 
-def send_telegram_notification(title, body):
-    """Send a Telegram notification."""
-    url = f'https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage'
-    payload = {
-        'chat_id': TELEGRAM_CHAT_ID,
-        'text': f'*{title}*\n{body}',
-        'parse_mode': 'Markdown'
-    }
-    try:
-        response = requests.post(url, data=payload)
-        response.raise_for_status()
-        logging.info('Notification sent to Telegram successfully.')
-    except requests.RequestException as e:
-        logging.error(f'Failed to send notification to Telegram: {e}')
+# Define command handlers
+def start(update: Update, context: CallbackContext):
+    update.message.reply_text('Bot is running. Use /help to see available commands.')
 
+def help_command(update: Update, context: CallbackContext):
+    commands = [
+        '/status - Check container health status',
+        '/logs - Get the latest logs',
+        '/price - Get the current product price',
+        '/running - Check if the container is running',
+        '/help - List available commands',
+    ]
+    update.message.reply_text("\n".join(commands))
 
-def get_current_price():
-    """Fetch the current price of the product."""
-    try:
-        response = requests.get(URL, headers=HEADERS)
-        response.raise_for_status()
-        soup = BeautifulSoup(response.content, 'html.parser')
-        title_element = soup.find('span', {'id': 'productTitle'})
-        price_element = soup.find('span', {'class': 'aok-offscreen'})
+def status(update: Update, context: CallbackContext):
+    container = client.containers.get('amazon_price_tracker-price_tracker-1')
+    health_status = container.attrs['State']['Health']['Status']
+    update.message.reply_text(f'Container health status: {health_status}')
 
-        if not title_element or not price_element:
-            logging.error('Failed to find product title or price element.')
-            return None, None
+def logs(update: Update, context: CallbackContext):
+    with open(log_file_path, 'r') as log_file:
+        logs = log_file.read()[-4096:]  # Last 4096 characters of logs
+    update.message.reply_text(f"Logs:\n```\n{logs}\n```", parse_mode=ParseMode.MARKDOWN)
 
-        product_title = title_element.text.strip()
-        price = price_element.text.strip()
-        return product_title, price
-    except requests.RequestException as e:
-        logging.error(f'Error fetching the product page: {e}')
-        return None, None
-
-
-def write_price_to_csv(date, csv_time, product_title, price):
-    """Write the product price to the CSV file."""
-    file_exists = os.path.exists(PRICE_FILE)
-    try:
-        with open(PRICE_FILE, 'a', newline='') as file:
-            writer = csv.writer(file)
-            if not file_exists:
-                logging.info(f"Creating new CSV file: {PRICE_FILE}")
-                writer.writerow(['Date', 'Time', 'Product Title', 'Price'])
-            logging.info(f"Appending to CSV file: {PRICE_FILE}")
-            writer.writerow([date, csv_time, product_title, price])
-    except IOError as e:
-        logging.error(f'Error writing to the CSV file: {e}')
-
-
-def check_price_drop():
-    """Check for a price drop and notify if necessary."""
+def price(update: Update, context: CallbackContext):
     product_title, current_price = get_current_price()
-    if not product_title or not current_price:
-        return
+    if product_title and current_price:
+        update.message.reply_text(f'Current price of {product_title}: {current_price}')
+    else:
+        update.message.reply_text('Failed to retrieve the current price.')
 
-    now = datetime.now()
-    date_str = now.strftime('%Y-%m-%d')
-    time_str = now.strftime('%H:%M:%S')
+def running(update: Update, context: CallbackContext):
+    container = client.containers.get('amazon_price_tracker-price_tracker-1')
+    status = container.status
+    update.message.reply_text(f'Container running status: {status}')
 
-    try:
-        with open(PRICE_FILE, 'r') as file:
-            reader = csv.reader(file)
-            rows = list(reader)
-            last_row = rows[-1] if rows else []
-            previous_price = last_row[3] if len(last_row) > 3 else None
-    except Exception as e:
-        logging.error(f"Error reading the CSV file: {e}")
-        previous_price = None
-
-    if previous_price is None:
-        write_price_to_csv(date_str, time_str, product_title, current_price)
-    elif current_price != previous_price:
-        title = 'Price Drop Alert!'
-        body = f'{product_title}\nOld Price: {previous_price}\nNew Price: {current_price}'
-        send_telegram_notification(title, body)
-        write_price_to_csv(date_str, time_str, product_title, current_price)
-
-
-def notify_start():
-    """Notify when the script starts."""
-    title = 'Script Started'
-    body = 'The price tracking script has started successfully.'
-    send_telegram_notification(title, body)
-
-
+# Set up the bot with the command handlers
 def main():
-    """Main function to run the script."""
-    notify_start()  # Notify when the script starts
-    while True:
-        check_price_drop()
-        time.sleep(CHECK_INTERVAL)  # Sleep for specified interval
-
+    updater = Updater(token=TELEGRAM_BOT_TOKEN, use_context=True)
+    dispatcher = updater.dispatcher
+    
+    dispatcher.add_handler(CommandHandler('start', start))
+    dispatcher.add_handler(CommandHandler('help', help_command))
+    dispatcher.add_handler(CommandHandler('status', status))
+    dispatcher.add_handler(CommandHandler('logs', logs))
+    dispatcher.add_handler(CommandHandler('price', price))
+    dispatcher.add_handler(CommandHandler('running', running))
+    
+    notify_start()
+    
+    updater.start_polling()
+    updater.idle()
 
 if __name__ == "__main__":
     main()
